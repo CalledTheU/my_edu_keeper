@@ -12,7 +12,7 @@ import logging
 
 from processor.import_process.config import ImportConfig, get_config
 from processor.import_process.exceptions import ImportProcessError
-from utils.task_util import add_running_task, add_done_task, add_node_duration
+from utils.task_util import add_running_task, add_done_task, add_node_duration, update_task_progress
 
 T = TypeVar("T")  # 泛型状态类型
 
@@ -72,6 +72,15 @@ class BaseNode(ABC):
             if task_id:
                 # 1.1 更新节点状态
                 add_running_task(task_id, self.name)
+                stage_names = {
+                    "pdf_to_md_node": "PDF 转 Markdown",
+                    "md_img_node": "Markdown 图片处理",
+                    "document_split_node": "文档切分",
+                    "item_name_rec_node": "识别课程/项目名称",
+                    "bge_embedding_node": "生成向量",
+                    "import_milvus_node": "写入知识库",
+                }
+                update_task_progress(task_id, stage=stage_names.get(self.name, self.name), message="正在处理")
 
             start = datetime.datetime.now()
             # 2. 执行节点

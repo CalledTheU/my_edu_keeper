@@ -16,6 +16,7 @@ _tasks_duration: Dict[str, Dict[str, float]] = defaultdict(dict)
 _tasks_result: Dict[str, Dict[str, str]] = defaultdict(dict)
 
 _tasks_status: Dict[str, str] = {}    # "processing" / "completed" / "failed"
+_tasks_progress: Dict[str, Dict[str, Any]] = defaultdict(dict)
 
 TASK_STATUS_PROCESSING = "processing"  # 任务处理中
 TASK_STATUS_COMPLETED = "completed"  # 任务完成
@@ -113,6 +114,12 @@ def get_task_result(task_id: str, key: str, default: str = "") -> str:
 def get_task_results(task_id: str) -> Dict[str, str]:
     return dict(_tasks_result.get(task_id, {}))
 
+def update_task_progress(task_id: str, **progress: Any) -> None:
+    _tasks_progress[task_id].update(progress)
+
+def get_task_progress(task_id: str) -> Dict[str, Any]:
+    return dict(_tasks_progress.get(task_id, {}))
+
 
 
 def add_node_duration(task_id: str, node_name: str, duration: float) -> None:
@@ -136,5 +143,6 @@ def get_task_info(task_id: str) -> Dict[str, Any]:
         "done_list": get_done_task_list(task_id),
         "durations": get_node_durations(task_id),
         "error": get_task_result(task_id, "error")
+        ,"progress": get_task_progress(task_id)
     }
 

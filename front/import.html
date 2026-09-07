@@ -698,7 +698,7 @@
       }
 
       // ---- 轮询渲染日志并计算进度 ----
-      function renderLogsAndCalculateProgress(itemEl, doneList, runningList, totalNodes, durations) {
+      function renderLogsAndCalculateProgress(itemEl, doneList, runningList, totalNodes, durations, progress) {
         const logSummary = itemEl.querySelector(".log-details summary");
         const logListEl = itemEl.querySelector(".log-list");
 
@@ -715,9 +715,10 @@
         for (const key in durationMap) totalDuration += durationMap[key];
         const durationText = totalDuration > 0 ? "，总耗时 " + formatDuration(totalDuration) : "";
 
+        const detail = progress && progress.message ? "，" + progress.message : "";
         logSummary.textContent =
           "运行日志（已完成 " + done.length + "，进行中 " + running.length +
-          "，共 " + totalNodes + " 步" + durationText + "）";
+          "，共 " + totalNodes + " 步" + durationText + detail + "）";
 
         logListEl.innerHTML = "";
 
@@ -767,7 +768,7 @@
             if (stopped) return;
 
             const calculatedPercentage = renderLogsAndCalculateProgress(
-              itemEl, data.done_list, data.running_list, totalNodes, data.durations);
+              itemEl, data.done_list, data.running_list, totalNodes, data.durations, data.progress);
 
             if (data.status === "completed") {
               stopped = true;

@@ -1,9 +1,12 @@
 import subprocess
 from pathlib import Path
 
+from pypdf import PdfReader
+
 from processor.import_process.base import BaseNode, setup_logging
 from processor.import_process.exceptions import ValidationError, FileProcessingError, PdfConversionError
 from processor.import_process.state import ImportGraphState
+from utils.task_util import update_task_progress
 
 
 class PdfToMdNode(BaseNode):
@@ -18,6 +21,14 @@ class PdfToMdNode(BaseNode):
         """
         # 校验输入输出路径
         import_file_obj, file_dir_obj = self._validate_state_inputs_path(state)
+        task_id = state.get("task_id", "")
+        if task_id:
+            try:
+                page_count = len(PdfReader(str(import_file_obj)).pages)
+                update_task_progress(task_id, stage="PDF 转 Markdown", current=0, total=page_count,
+                                     message=f"共 {page_count} 页，正在解析和识别版面")
+            except Exception as exc:
+                self.logger.warning("无法读取 PDF 页数: %s", exc)
         # 执行MinerU转换
         execute_mineru = self._execute_mineru(import_file_obj, file_dir_obj)
         # 判断转换是否成功

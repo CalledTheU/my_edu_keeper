@@ -65,7 +65,7 @@ class ImportConfig:
         default_factory=lambda: os.getenv("DASHSCOPE_API_KEY", "")
     )
     vl_model: str = field(
-        default_factory=lambda: os.getenv("VL_MODEL", "qwen3.7-flash")
+        default_factory=lambda: os.getenv("VL_MODEL", "qwen-vl-plus")
     )
     item_model: str = field(
         default_factory=lambda: os.getenv("ITEM_MODEL", "deepseek-v4-flash")
@@ -119,7 +119,9 @@ class ImportConfig:
     embedding_batch_size: int = 8
 
     # ==================== 速率限制 ====================
-    requests_per_minute: int = 15  # 图片总结 API 速率限制
+    requests_per_minute: int = field(
+        default_factory=lambda: int(os.getenv("VLM_REQUESTS_PER_MINUTE", "2"))
+    )
 
     @classmethod
     def from_env(cls) -> "ImportConfig":

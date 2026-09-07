@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 
 from pydantic import BaseModel, Field
 
@@ -16,3 +16,4 @@ class TaskStatusResponse(BaseModel):
     running_list: List[str] = Field(..., description="正在运行节点列表")
     durations: Dict[str, float] = Field(default={}, description="各节点耗时(秒)")
     error: str = Field(default="", description="失败原因")
+    progress: Dict[str, Any] = Field(default_factory=dict, description="当前阶段进度")

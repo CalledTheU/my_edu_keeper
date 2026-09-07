@@ -14,6 +14,7 @@ from processor.import_process.exceptions import StateFieldError, FileProcessingE
 from processor.import_process.state import ImportGraphState
 from utils.client.ai_clients import AIClients
 from utils.client.storage_clients import StorageClients
+from utils.task_util import update_task_progress
 
 
 @dataclass
@@ -210,7 +211,7 @@ class VLMSummarizer:
         self.logger = logger
         self.node_name = node_name
 
-    def summarize_all(self, file_title, imageinfo_list, vl_model, requests_per_minute) -> Dict[str, str]:
+    def summarize_all(self, file_title, imageinfo_list, vl_model, requests_per_minute, task_id="") -> Dict[str, str]:
         """
         调用VLM视觉语言模型，为每个图片生成摘要
         {
@@ -235,11 +236,17 @@ class VLMSummarizer:
             self.logger.error("视觉客户端初始化失败，所有图片使用默认摘要: %s", e, exc_info=True)
             return summarizes
 
-        for image_info in imageinfo_list:
+        total = len(imageinfo_list)
+        if task_id:
+            update_task_progress(task_id, stage="图片处理", current=0, total=total, message=f"共 {total} 张图片，准备处理")
+        for index, image_info in enumerate(imageinfo_list, 1):
             # 速率控制   - 滑动窗口限流算法
             self._enforce_rate_limit(requests_timestamp, requests_per_minute)  # 默认时间窗口60秒
 
             summarizes[image_info.name] = self.summarize_one(file_title, image_info, vl_model, client)
+            if task_id:
+                update_task_progress(task_id, stage="图片处理", current=index, total=total,
+                                     message=f"共 {total} 张图片，正在处理第 {index} 张")
 
         return summarizes
 
@@ -451,7 +458,8 @@ class MarkDownImageNode(BaseNode):
         # 3.VLM 生成摘要
         summarizes: dict[str, str] = self.vlm_summarizer.summarize_all(state['file_title'], imageinfo_list,
                                                                        self.config.vl_model,
-                                                                       self.config.requests_per_minute)
+                                                                       self.config.requests_per_minute,
+                                                                       state.get("task_id", ""))
         # 4.上传图片到Minio &替换(摘要+URL)
         new_md_content: str = self.image_uploader.upload_and_replace(
             state['file_title'],  # 作为上传图片的父路径名称
