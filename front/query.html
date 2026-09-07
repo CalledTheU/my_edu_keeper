@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>掌柜智库 · 教育版 - 知识问答</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Microsoft YaHei", system-ui, sans-serif; margin: 0; background: #f5f7fa; color: #1f2329; }
+    header { background: #2f54eb; color: #fff; padding: 12px 20px; font-size: 18px; }
+    main { max-width: 860px; margin: 16px auto; padding: 0 12px; }
+    #chat { background: #fff; border: 1px solid #e5e6eb; border-radius: 8px; padding: 16px; min-height: 420px; }
+    .msg { margin: 8px 0; }
+    .bubble { display: inline-block; max-width: 85%; padding: 8px 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
+    .user { text-align: right; }
+    .user .bubble { background: #2f54eb; color: #fff; }
+    .assistant .bubble { background: #f0f2f5; }
+    .meta { color: #86909c; font-size: 12px; margin-top: 2px; }
+    #nodes { color: #86909c; font-size: 12px; min-height: 18px; }
+    #answer { min-height: 60px; }
+    #panel { display: flex; gap: 8px; margin-top: 12px; }
+    #question { flex: 1; padding: 10px 12px; border: 1px solid #c9cdd4; border-radius: 6px; font-size: 14px; }
+    #send { padding: 10px 22px; border: 0; border-radius: 6px; background: #2f54eb; color: #fff; font-size: 14px; cursor: pointer; }
+    #send:disabled { background: #b0b6bd; cursor: not-allowed; }
+    #actions { margin-top: 8px; }
+    #actions button { border: 0; background: none; color: #2f54eb; cursor: pointer; font-size: 12px; }
+    .btn-clear-history { float: right; }
+  </style>
+</head>
+<body>
+  <header>掌柜智库 · 教育版 —— 知识问答(SSE 流式)</header>
+  <main>
+    <div id="chat">
+      <div class="msg assistant"><span class="bubble">你好,我是教育知识库助手。可以问我课程介绍、知识点、文档内容或题目信息。</span></div>
+      <div id="nodes"></div>
+      <div class="msg assistant" id="answerWrap" style="display:none;">
+        <span class="bubble" id="answer"></span>
+      </div>
+    </div>
+    <div id="panel">
+      <input id="question" type="text" placeholder="请输入问题,例如: Python 有哪些课程?" autocomplete="off" />
+      <button id="send">发送</button>
+    </div>
+    <div id="actions">
+      <button id="clear" class="btn-clear-history">清空本会话历史</button>
+      <span class="meta">会话ID: <span id="sid"></span></span>
+    </div>
+  </main>
+  <script>
+    const SID_KEY = "edu_query_session";
+    let sessionId = localStorage.getItem(SID_KEY) || "";
+    const sidEl = document.getElementById("sid");
+    const nodesEl = document.getElementById("nodes");
+    const answerWrap = document.getElementById("answerWrap");
+    const answerEl = document.getElementById("answer");
+    const questionEl = document.getElementById("question");
+    const sendEl = document.getElementById("send");
+
+    function ensureSession() {
+      if (!sessionId) { sessionId = crypto.randomUUID(); localStorage.setItem(SID_KEY, sessionId); }
+      sidEl.textContent = sessionId;
+    }
+    ensureSession();
+
+    function appendNodes(d) {
+      const done = (d.done_list || []).join(" → ");
+      const running = (d.running_list || []).join(", ");
+      let t = "";
+      if (done) t += "已完成: " + done;
+      if (running) t += (t ? " | " : "") + "运行中: " + running;
+      nodesEl.textContent = t;
+    }
+
+    async function ask() {
+      const question = questionEl.value.trim();
+      if (!question) return;
+      questionEl.value = "";
+      sendEl.disabled = true;
+      answerEl.textContent = "";
+      answerWrap.style.display = "block";
+      nodesEl.textContent = "";
+
+      const userDiv = document.createElement("div");
+      userDiv.className = "msg user";
+      userDiv.innerHTML = '<span class="bubble"></span>';
+      userDiv.querySelector(".bubble").textContent = question;
+      document.getElementById("chat").insertBefore(userDiv, nodesEl);
+
+      let resp;
+      try {
+        resp = await fetch("/query/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, question: question, is_stream: true })
+        });
+      } catch (e) {
+        answerEl.textContent = "请求失败: " + e.message; sendEl.disabled = false; return;
+      }
+      if (!resp.ok) {
+        answerEl.textContent = "服务端错误 HTTP " + resp.status; sendEl.disabled = false; return;
+      }
+      const data = await resp.json();
+
+      const es = new EventSource("/query/stream/" + data.task_id);
+      es.addEventListener("progress", (e) => {
+        try { appendNodes(JSON.parse(e.data)); } catch (_) { }
+      });
+      es.addEventListener("delta", (e) => {
+        try { answerEl.textContent += JSON.parse(e.data).delta || ""; } catch (_) { }
+      });
+      es.addEventListener("final", (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload.answer) answerEl.textContent = payload.answer;
+        } catch (_) { }
+        es.close();
+        sendEl.disabled = false;
+      });
+      es.onerror = () => { es.close(); sendEl.disabled = false; };
+    }
+
+    sendEl.addEventListener("click", ask);
+    questionEl.addEventListener("keydown", (e) => { if (e.key === "Enter") ask(); });
+
+    document.getElementById("clear").addEventListener("click", async () => {
+      await fetch("/query/history/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId })
+      });
+      answerEl.textContent = ""; nodesEl.textContent = "";
+    });
+  </script>
+</body>
+</html>
