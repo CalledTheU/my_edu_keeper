@@ -78,7 +78,8 @@ class HyDeSearchNode(BaseNode):
             collection_name=self.config.chunks_collection,
             search_requests=hybrid_search_requests,
             norm_score=True,
-            output_fields=["chunk_id", "content", "item_name", 'title']
+            output_fields=["chunk_id", "content", "item_name", "title", "course_name",
+                           "project_name", "chapter_name", "source_file", "content_type"]
         )
 
         if not reps or not reps[0]:

@@ -32,13 +32,12 @@ class ScalarFieldSpec:
 _SCALAR_FIELDS: Sequence[ScalarFieldSpec] = (
     ScalarFieldSpec(field_name="content", datatype=DataType.VARCHAR, max_length=65535),
     ScalarFieldSpec(field_name="title", datatype=DataType.VARCHAR, max_length=65535),
-    ScalarFieldSpec(field_name="parent_title", datatype=DataType.VARCHAR, max_length=65535),
-    ScalarFieldSpec(field_name="file_title", datatype=DataType.VARCHAR, max_length=65535),
     ScalarFieldSpec(field_name="item_name", datatype=DataType.VARCHAR, max_length=65535),
     ScalarFieldSpec(field_name="course_name", datatype=DataType.VARCHAR, max_length=65535),
     ScalarFieldSpec(field_name="project_name", datatype=DataType.VARCHAR, max_length=65535),
     ScalarFieldSpec(field_name="chapter_name", datatype=DataType.VARCHAR, max_length=65535),
     ScalarFieldSpec(field_name="source_file", datatype=DataType.VARCHAR, max_length=65535),
+    ScalarFieldSpec(field_name="content_type", datatype=DataType.VARCHAR, max_length=32),
 )
 
 
@@ -54,7 +53,7 @@ class _MilvusSchemaBuilder:
         logger.info("开始构建约束(schema)...")
 
         # 1. 构建约束对象(动态映射)
-        schema = client.create_schema(enable_dynamic_field=True)
+        schema = client.create_schema(enable_dynamic_field=False)
 
         # 2. 构建主键字段约束
         schema.add_field(
@@ -178,8 +177,12 @@ class ImportMilvusNode(BaseNode):
         self._ensure_has_collection(milvus_client, collection, dim)
 
         # 5. 插入
-        inserter = _MilvusInserter(client=milvus_client, collection_name=collection)
-        final_chunks = inserter.insert(chunks=validated_chunks)
+        # 只写入教育版约定字段，避免模板遗留字段进入 dynamic fields。
+        allowed = {"content", "title", "item_name", "course_name", "project_name",
+                   "chapter_name", "source_file", "content_type", "dense_vector", "sparse_vector"}
+        final_chunks = _MilvusInserter(client=milvus_client, collection_name=collection).insert(
+            chunks=[{k: v for k, v in chunk.items() if k in allowed} for chunk in validated_chunks]
+        )
 
         # 6. 更新state
         state['chunks'] = final_chunks

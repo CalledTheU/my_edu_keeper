@@ -1,5 +1,9 @@
-from typing import  List
+import threading
+from typing import List
 from pymilvus.model.hybrid import BGEM3EmbeddingFunction
+
+
+_embedding_lock = threading.Lock()
 
 
 def generate_bge_m3_hybrid_vectors(model: BGEM3EmbeddingFunction, embedding_documents: List[str],is_query:bool=True):
@@ -32,10 +36,12 @@ def generate_bge_m3_hybrid_vectors(model: BGEM3EmbeddingFunction, embedding_docu
     encode_documents 编码文档内容    入库存储的文档    documents
     """
     try:
-        if is_query:
-            embedding_result = model.encode_queries(embedding_documents)
-        else:
-            embedding_result = model.encode_documents(embedding_documents)
+        # BGE-M3 的同一实例不能安全地并发 encode；查询图会并行调用两路检索。
+        with _embedding_lock:
+            if is_query:
+                embedding_result = model.encode_queries(embedding_documents)
+            else:
+                embedding_result = model.encode_documents(embedding_documents)
     except Exception as e:
         raise RuntimeError(f"BGE-M3 嵌入生成失败: {e}") from e
 

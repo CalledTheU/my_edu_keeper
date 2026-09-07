@@ -53,7 +53,7 @@ class VectorSearchNode(BaseNode):
         try:
             embed_query = generate_bge_m3_hybrid_vectors(model=embedding_model, embedding_documents=[validated_query])
         except Exception as e:
-            self.logger.error(f"问题{validated_query}嵌入失败")
+            self.logger.error(f"问题{validated_query}嵌入失败: {e}")
             return state
 
         # 5. 构建过滤表达式以及表达式参数
@@ -73,7 +73,8 @@ class VectorSearchNode(BaseNode):
                 milvus_client=milvus_client,
                 collection_name=self.config.chunks_collection,
                 search_requests=hybrid_search_request,
-                output_fields=['chunk_id', 'content', 'item_name', 'title'])
+                output_fields=['chunk_id', 'content', 'item_name', 'title', 'course_name',
+                               'project_name', 'chapter_name', 'source_file', 'content_type'])
 
             # 8. 获取搜索结果
             if not hybrid_search_reps or not hybrid_search_reps[0]:

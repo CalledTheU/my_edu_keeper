@@ -27,7 +27,12 @@ class WebSearchMcpNode(BaseNode):
 
         # 2.创建MCP客户端
         # 异步函数调用放在事件循环中，变成同步处理
-        web_search_docs = asyncio.run(self._web_mcp(validateed_rewritten_query))
+        try:
+            web_search_docs = asyncio.run(self._web_mcp(validateed_rewritten_query))
+        except Exception as exc:
+            # 联网搜索是可选增强；MCP 不可用时继续使用本地知识库。
+            self.logger.warning("MCP 网络搜索不可用，降级为空结果: %s", exc)
+            web_search_docs = []
 
         # 5.封装返回结果
         return {

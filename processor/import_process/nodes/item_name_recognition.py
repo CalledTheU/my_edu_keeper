@@ -87,7 +87,7 @@ class ItemNameRecognitionNode(BaseNode):
             chunk_text = f"切片{index + 1}: {content}"
 
             # 判断拼接后的分块内容是否超过商品名分块大小
-            if len(final_chunk_text) + len(chunk_text) > item_name_chunk_size:
+            if sum(map(len, final_chunk_text)) + len(chunk_text) > item_name_chunk_size:
                 # 如果超过，则跳出循环
                 break
             # 放入最终的集合
@@ -110,11 +110,13 @@ class ItemNameRecognitionNode(BaseNode):
 
             # 返回大模型生成的结果
             ai_message_content = ai_message.content.strip()
-            if not ai_message_content or ai_message_content == "UNKNOWN":
-                self.logger.info(f"LLM未识别出商品名，降级使用标题: {file_title}")
+            if not ai_message_content:
                 return file_title
-
-            return json.loads(ai_message_content).get("item_name")
+            cleaned = ai_message_content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            item_name = json.loads(cleaned).get("item_name")
+            if not isinstance(item_name, str) or item_name.strip().upper() in {"UNKNOWN", "UNKNOW", "NULL"}:
+                return file_title
+            return item_name.strip() or file_title
         except Exception as e:
             self.logger.error(f"LLM调用失败，降级使用标题: {file_title}，异常: {e}")
             return file_title

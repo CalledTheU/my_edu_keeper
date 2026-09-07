@@ -40,6 +40,7 @@ class DocumentSplitNode(BaseNode):
             chunk["project_name"] = state.get("project_name", "")
             chunk["chapter_name"] = chunk.get("title", "")
             chunk["source_file"] = state.get("source_file", state.get("file_title", ""))
+            chunk["content_type"] = state.get("content_type", "doc_chunk")
 
         # 5.日志备份
 
@@ -243,12 +244,14 @@ class DocumentSplitNode(BaseNode):
         for current_section in current_sections[1:]:
             # 判断当前章节和上一个章节是否是同一个父章节，并且当前章节的正文长度是否小于阈值
             same_parent_title:bool = first_section.get("parent_title") == current_section.get("parent_title")
-            merged_title = first_section.get("parent_title", first_section.get("title", ""))
+            merged_title = first_section.get("title", first_section.get("parent_title", ""))
             merged_body = (
                 first_section.get("body", "").rstrip()
                 + "\n\n"
+                + current_section.get("title", "").strip()
+                + "\n\n"
                 + current_section.get("body", "").lstrip()
-            )
+            ).strip()
             fits_max_length = len(merged_title) + 2 + len(merged_body) <= max_content_length
             if same_parent_title and len(current_section.get('body', '')) < min_content_length and fits_max_length:
                 # 合并章节

@@ -23,6 +23,7 @@ from core.paths import get_front_page_dir
 from schema.query_schema import HistoryMessage, QueryRequest, QueryResponse
 from utils.mongo_history_util import clear_history, get_recent_messages
 from utils.sse_util import create_sse_queue, sse_generator
+from utils.sse_util import push_sse_event, SSEEvent
 from utils.task_util import get_task_result, update_task_status, TASK_STATUS_PROCESSING, TASK_STATUS_COMPLETED, TASK_STATUS_FAILED
 
 
@@ -49,6 +50,7 @@ def _run_query_graph(state: dict) -> None:
         update_task_status(state["task_id"], TASK_STATUS_COMPLETED)
     except Exception as exc:
         update_task_status(state["task_id"], TASK_STATUS_FAILED, str(exc))
+        push_sse_event(state["task_id"], SSEEvent.FINAL, {"answer": "抱歉，本次问答处理失败。", "error": str(exc)})
 
 
 def register_router(app: FastAPI) -> None:

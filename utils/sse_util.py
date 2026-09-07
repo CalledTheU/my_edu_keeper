@@ -96,6 +96,8 @@ async def sse_generator(task_id: str, request: Request) -> AsyncGenerator:
                 event_data = msg.get('data')
                 # 3.5 打包返回
                 yield _sse_pack(event_type, event_data)  # 打包并且通过yield返回
+                if event_type == SSEEvent.FINAL:
+                    return
             except queue.Empty:
                 logging.info(f"队列为空...请稍等")
                 continue
