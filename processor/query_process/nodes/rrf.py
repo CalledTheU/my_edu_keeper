@@ -15,6 +15,7 @@ class RrfNode(BaseNode):
         # 1.获取向量检索结果和HyDE检索结果  进行数据校验
         embedding_chunks: List[Dict[str, Any]] = state.get("embedding_chunks", [])
         hyde_embedding_chunks: List[Dict[str, Any]] = state.get("hyde_embedding_chunks", [])
+        self.logger.info("输入检索结果: embedding=%d, hyde=%d", len(embedding_chunks), len(hyde_embedding_chunks))
 
         # 2.统一格式化(把向量检索结果和HyDE检索结果统一格式化)
         embedding_chunks_result: List[Dict[str, Any]] = self._normalize_input(embedding_chunks)
@@ -29,6 +30,7 @@ class RrfNode(BaseNode):
 
         # 5.回填
         state["rrf_chunks"] = [entity for entity, _ in rrf_results]
+        self.logger.info("RRF 融合完成: 输出=%d", len(state["rrf_chunks"]))
 
         return state
 

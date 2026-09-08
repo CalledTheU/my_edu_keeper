@@ -34,6 +34,7 @@ class VectorSearchNode(BaseNode):
     #def process(self, state: QueryGraphState) -> QueryGraphState or Dict[str, Any]:
         # 1. 参数校验
         validated_query, validate_item_names = self._validate_state(state)
+        self.logger.info("检索输入: query=%r, item_names=%s", validated_query, validate_item_names)
 
         # 2. 获取嵌入模型
         try:
@@ -59,6 +60,7 @@ class VectorSearchNode(BaseNode):
         # 5. 构建过滤表达式以及表达式参数
         filter_expr, filter_expr_param = (item_names_filter(validate_item_names)
                                           if validate_item_names else (None, None))
+        self.logger.info("Milvus 过滤条件: %s", filter_expr or "无（全库检索）")
 
         try:
             # 6. 创建混合请求
@@ -78,14 +80,16 @@ class VectorSearchNode(BaseNode):
 
             # 8. 获取搜索结果
             if not hybrid_search_reps or not hybrid_search_reps[0]:
+                self.logger.warning("Milvus 未召回本地文档")
                 return state
 
             # 9. 更新state 返回
+            self.logger.info("Milvus 召回本地文档: %d 条", len(hybrid_search_reps[0]))
             return {
                 "embedding_chunks": hybrid_search_reps[0]
             }
         except Exception as e:
-            self.logger.error(f"混合检索失败 原因:{str(e)}")
+            self.logger.exception(f"混合检索失败 原因:{str(e)}")
             return state
 
     def _validate_state(self, state: QueryGraphState) -> Tuple[str, List[str]]:

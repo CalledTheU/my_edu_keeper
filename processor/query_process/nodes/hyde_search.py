@@ -41,9 +41,11 @@ class HyDeSearchNode(BaseNode):
         """
         # 1. 参数校验
         validated_query, validate_item_names = self._validate_query_inputs(state)
+        self.logger.info("HyDE 输入: query=%r, item_names=%s", validated_query, validate_item_names)
 
         # 2. 生成假设性文档
         hy_document = self._generate_hy_document(validated_query, validate_item_names)
+        self.logger.info("HyDE 假设文档生成完成: chars=%d", len(hy_document))
 
         # 3. 获取嵌入模型 & milvus 客户端
         embedding_model = AIClients.get_bge_m3_client()
@@ -83,9 +85,11 @@ class HyDeSearchNode(BaseNode):
         )
 
         if not reps or not reps[0]:
+            self.logger.warning("HyDE 未召回本地文档")
             return state
 
         # 8. 只更新 hyde_embedding_chunks
+        self.logger.info("HyDE 召回本地文档: %d 条", len(reps[0]))
         return {"hyde_embedding_chunks": reps[0]}
 
     def _validate_query_inputs(self, state: QueryGraphState) -> Tuple[str, List[str]]:
@@ -148,7 +152,7 @@ class HyDeSearchNode(BaseNode):
             return llm_response_content
 
         except Exception as e:
-            self.logger.error(f"LLM调用失败:{str(e)}")
+            self.logger.exception(f"HyDE LLM调用失败:{str(e)}")
             return ""
 
 # ================================================================== #

@@ -26,6 +26,9 @@ class AnswerOutputNode(BaseNode):
                 set_task_result(state['task_id'], "answer", state['answer'])
         else:
             # 1.2 无答案： 进行三路检索，排序，再生成答案，输出答案
+            self.logger.info("开始生成答案: reranked_docs=%d, web_docs=%d",
+                             len(state.get("reranked_docs") or []),
+                             len(state.get("web_search_docs") or []))
             # 1.2.1 构建提示词
             prompt = self._build_prompt(state)
             # 1.2.2 创建LLM客户端
@@ -38,6 +41,7 @@ class AnswerOutputNode(BaseNode):
             # 1.2.3 非流式输出
             if not state.get("is_stream"):
                 state["answer"] = self._generate_answer_invoke(llm_client, prompt)
+                self.logger.info("非流式答案生成完成: chars=%d", len(state.get("answer") or ""))
                 set_task_result(state['task_id'], "answer", state['answer'])
             # 1.2.4 流式输出
             else:
@@ -144,6 +148,7 @@ class AnswerOutputNode(BaseNode):
             client_invoke_result = llm_client.invoke(prompt)
             return client_invoke_result.content.strip()
         except Exception as e:
+            self.logger.exception("invoke生成答案失败: %s", e)
             return "抱歉,invoke生成答案失败!"
 
     def _generate_answer_stream(self, llm_client, state, prompt):
@@ -155,6 +160,7 @@ class AnswerOutputNode(BaseNode):
                 push_sse_event(task_id=state.get("task_id"), event=SSEEvent.DELTA, data={"delta": delta_text})
             return client_invoke_result
         except Exception as e:
+            self.logger.exception("stream生成答案失败: %s", e)
             return "抱歉,stream生成答案失败!"
 
     def _write_history(self, state):

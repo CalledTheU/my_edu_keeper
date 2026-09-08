@@ -1,6 +1,12 @@
+import os
 import threading
 from pathlib import Path
 from typing import Optional
+
+# Windows CPU 推理时避免 PyTorch/MKL 多线程触发原生访问冲突。
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -144,9 +150,13 @@ class AIClients(BaseClientManager):
     def _create_bge_m3_rerank_client(cls) -> FlagReranker:
         try:
             model_name_or_path = cls._require_env("BGE_RERANKER_LARGE")
-            device = cls._require_env("BGE_DEVICE")
-            fp16_str = cls._require_env("BGE_FP16")
+            device = os.getenv("BGE_RERANKER_DEVICE", "cpu")
+            fp16_str = os.getenv("BGE_RERANKER_FP16", "0")
             fp16 = fp16_str.lower() in ("true","1")
+
+            # CPU 不支持半精度 Reranker 推理，强制关闭以避免底层崩溃。
+            if device.lower() == "cpu":
+                fp16 = False
 
             reranker = FlagReranker( # 交叉编码器
                 model_name_or_path=model_name_or_path,

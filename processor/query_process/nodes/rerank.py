@@ -19,9 +19,11 @@ class RerankNode(BaseNode):
 
         # 2.合并多源文档      RRF集合【向量搜索+HyDE】      +      Web MCP 集合
         merge_docs: List[Dict[str, Any]] = self._merge_multi_source_docs(state)
+        self.logger.info("输入文档: rrf=%d, web=%d, 合并=%d", len(state.get("rrf_chunks") or []), len(state.get("web_search_docs") or []), len(merge_docs))
 
         # 3.Rerank精排（带分数的集合实体对象）  采用BGE Reranker Large模型  ->  交叉编码器进行相关性得分   [CLS]key[SEP]document[SEP]
         rerank_docs: List[Dict[str, Any]] = self._rerank_merged_docs(rewritten_query, merge_docs)
+        self.logger.info("Reranker 返回 %d 条结果", len(rerank_docs))
 
         # 4.第一断崖检测截断。不要采用固定截断方式。
         cutoff_docs = self.cliff_cutoff(rerank_docs, self.config.rerank_max_top_k, self.config.rerank_min_top_k,
@@ -79,7 +81,11 @@ class RerankNode(BaseNode):
 
         # 1.获取Reranker模型客户端
         try:
+            if not merge_docs:
+                self.logger.warning("没有可重排的文档，跳过 Reranker")
+                return []
             reranker_client = AIClients.get_bge_m3_rerank_client()
+            self.logger.info("Reranker 客户端已就绪，准备计算 %d 对文本", len(merge_docs))
 
             # 2.准备pairs  [CLS]key[SEP]document[SEP]
             #     pairs = [
@@ -93,6 +99,7 @@ class RerankNode(BaseNode):
             # 3.调用reranker模型打分函数：
             #     scores = reranker.compute_score(sentence_pairs=pairs, normalize=True)  # normalize=True 归一化
             scores = reranker_client.compute_score(sentence_pairs=pairs, normalize=True)
+            self.logger.info("Reranker compute_score 已返回，类型=%s", type(scores).__name__)
             # 单文档防护问题
             # 需要加防护，且与版本无关，这是 FlagEmbedding 的 API 设计行为，不会因为版本更新而改变。加一行 isinstance 检查成本很低但能避免线上崩溃。
             if isinstance(scores, (float, int)):

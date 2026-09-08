@@ -33,8 +33,8 @@ class ItemNameExtractor:
         # 2.调用LLM进行商品名称提取
         llm_response = llm_client.invoke([
             # 2.1准备系统和用户提示词
-            SystemMessage(content=ITEM_NAME_EXTRACT_SYSTEM_PROMPT),
-            HumanMessage(content=ITEM_NAME_EXTRACT_TEMPLATE.format(history_text=history_context,query=original_query))
+            SystemMessage(content=ITEM_NAME_EXTRACT_SYSTEM_PROMPT.format(history_text=history_context,)),
+            HumanMessage(content=ITEM_NAME_EXTRACT_TEMPLATE.format(original_query=original_query))
         ])
 
         response = llm_response.content.strip()
@@ -46,14 +46,14 @@ class ItemNameExtractor:
         parsed_result = self._clean_parse(response)
 
         result["rewritten_query"] = parsed_result.get("rewritten_query") or original_query
-        result["item_names"] = parsed_result.get("item_names")
+        result["item_names"] = parsed_result.get("item_names", [])
 
         return result
 
     def _clean_parse(self, llm_content: str) -> Dict[str, Any]:
         """清洗并解析 LLM 响应"""
         # 1. 清洗 json 代码块围栏
-        cleaned = re.sub(r"^```(?:json)?\s*", "", llm_content.strip())
+        cleaned = re.sub(r"^```(?:json)?\s*", "", llm_content.lstrip("\ufeff").strip())
         content = re.sub(r"\s*```$", "", cleaned)
 
         # 2. 反序列化
@@ -72,7 +72,10 @@ class ItemNameExtractor:
 
             return {"item_names": clean_item_names, "rewritten_query": clean_rewritten_query}
         except JSONDecodeError as e:
-            raise ValueError(f"JSON反序列LLM的输出失败：{str(e)}")
+            # 模型偶发返回空文本或非 JSON；商品名识别是增强能力，不能中断问答。
+            self.logger.warning("商品名识别响应不是 JSON，降级为不筛选商品名: %s; 响应前200字符=%r",
+                                e, llm_content[:200])
+            return {"item_names": [], "rewritten_query": ""}
 
 class ItemNameAligner:
     """商品名称对齐器
@@ -317,7 +320,9 @@ class ItemNameConfirmNode(BaseNode):
         original_query = state.get("original_query")
         # 获取历史会话
         history_messages: List[Dict[str, Any]] = get_recent_messages(session_id)
-        history_context = "暂无历史会话信息"
+        history_context = ""
+        if len(history_messages) == 0:
+            history_context = "暂无历史会话信息"
         for message in history_messages:
             history_context += message["role"] + ":" + message["text"] + "\n"
 
