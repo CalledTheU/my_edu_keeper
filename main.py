@@ -63,5 +63,7 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    # 开发期如需热重载可改用: uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    print("知识库导入:http://127.0.0.1:8000/import")
+    print("智能问答:  http://127.0.0.1:8000/query")
+    print("启动服务前,请确保数据库(Milvus / MongoDB)已启动")
     uvicorn.run(app=app, host="0.0.0.0", port=8000)

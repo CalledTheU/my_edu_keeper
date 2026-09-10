@@ -225,6 +225,59 @@
       border-top-left-radius: 5px;
     }
 
+    /* ============ 答案富文本（精简 Markdown + 知识库图片） ============ */
+    .bubble-rich { white-space: normal; }
+    .bubble-rich > :first-child { margin-top: 0; }
+    .bubble-rich > :last-child { margin-bottom: 0; }
+    .bubble-rich p { margin: 0 0 8px; }
+    .bubble-rich h4 { margin: 10px 0 6px; font-size: 14.5px; font-weight: 600; }
+    .bubble-rich ul, .bubble-rich ol { margin: 4px 0 8px; padding-left: 22px; }
+    .bubble-rich li { margin: 2px 0; }
+    .bubble-rich strong { font-weight: 600; }
+    .bubble-rich a { color: var(--c-accent); }
+    .bubble-rich code {
+      background: var(--c-line-soft);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .bubble-rich pre {
+      margin: 6px 0 8px;
+      padding: 9px 11px;
+      background: var(--c-line-soft);
+      border-radius: var(--r-sm);
+      overflow-x: auto;
+    }
+    .bubble-rich pre code { background: none; padding: 0; }
+
+    /* 图片区块 */
+    .answer-figures { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+    .answer-figures figure { margin: 0; }
+    .answer-figures img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      background: #fff;
+      border: 1px solid var(--c-line);
+      border-radius: var(--r-sm);
+      cursor: zoom-in;
+    }
+    .answer-figures figcaption {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--c-text-3);
+      word-break: break-all;
+    }
+    .answer-figures .figure-error {
+      padding: 7px 10px;
+      font-size: 12.5px;
+      color: var(--c-danger);
+      background: var(--c-danger-soft);
+      border: 1px solid #f6d7d3;
+      border-radius: var(--r-sm);
+      word-break: break-all;
+    }
+
     /* 建议问题 */
     .suggest { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
     .suggest button {
@@ -487,6 +540,12 @@
       "use strict";
 
       const SID_KEY = "edu_query_session";
+
+      // 后端地址（服务默认运行在本机 8000 端口）
+      // 与 import.html 保持一致：显式指定后端，避免页面从 /front/query.html、
+      // file:// 或非 8000 端口的静态服务打开时，相对路径把请求打到错误的服务上。
+      const API_BASE = "http://127.0.0.1:8000";
+
       const NODE_NAMES = {
         hyde_search: "假设性文档检索",
         vector_search: "向量检索",
@@ -506,7 +565,11 @@
 
       let sessionId = localStorage.getItem(SID_KEY) || "";
       let busy = false;
-      let liveEl = null; // 当前正在流式输出的助手消息
+      let liveEl = null;        // 当前正在流式输出的助手气泡
+      let liveTextEl = null;    // 气泡内的文本容器
+      let liveFigsEl = null;    // 气泡内的图片容器
+      let liveRaw = "";         // 当前答案的原始文本（累积流式增量）
+      let liveImgKey = "";      // 已渲染图片 URL 指纹，避免重复重建 <img>
 
       function ensureSession() {
         if (!sessionId) {
@@ -615,6 +678,174 @@
         liveEl.textContent = message;
       }
 
+      // ================= 答案渲染：精简 Markdown + 【图片】区块 → 真实图片 =================
+      // 说明：后端 ANSWER_PROMPT 要求模型在答案末尾追加独立【图片】区块，每行一个图片 URL；
+      // 知识库切片正文里也可能带 Markdown 图片语法 ![说明](url)。这里统一解析并渲染成 <img>。
+
+      function escapeHtml(text) {
+        return String(text)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      // URL 里可能含中文与空格（MinIO 对象 key 常见），<img src> 需要编码。
+      // 只在确实含空格/非 ASCII 时才编码，避免对已编码的 %xx 二次编码（%20 → %2520）。
+      function toSrc(url) {
+        const trimmed = String(url).trim();
+        if (!/[\s\u0080-\uFFFF"<>\\^`{|}]/.test(trimmed)) return trimmed;
+        try { return encodeURI(trimmed); } catch (_) { return trimmed; }
+      }
+
+      // 抽取图片地址：①【图片】区块里整行 URL（URL 本身可能含空格，不能按 \S+ 截断）
+      //              ② 正文中的 Markdown 图片语法
+      //              ③ 兜底的裸图片链接
+      function extractImages(raw) {
+        const urls = [];
+        let body = String(raw || "");
+
+        const markerIndex = body.search(/【图片】/);
+        if (markerIndex >= 0) {
+          const tail = body.slice(markerIndex + "【图片】".length);
+          body = body.slice(0, markerIndex);
+          tail.split(/\r?\n/).forEach(function (line) {
+            const cleaned = line.trim().replace(/^[<[("'`]+/, "").replace(/[>\])"'`]+$/, "");
+            if (/^https?:\/\//i.test(cleaned)) urls.push(cleaned);
+          });
+        }
+
+        body = body.replace(/!\[[^\]]*\]\((https?:\/\/[^)]+?)\)/g, function (_m, url) {
+          urls.push(url.trim());
+          return "";
+        });
+
+        body = body.replace(/(^|\s)(https?:\/\/\S+\.(?:jpg|jpeg|png|gif|webp|bmp))(?=\s|$)/gi,
+          function (_m, prefix, url) {
+            urls.push(url);
+            return prefix;
+          });
+
+        const unique = [];
+        urls.forEach(function (u) {
+          if (u && unique.indexOf(u) === -1) unique.push(u);
+        });
+        return { body: body, urls: unique };
+      }
+
+      // 精简 Markdown → HTML（先整体转义，再替换标记，避免注入）
+      function markdownLite(text) {
+        const lines = escapeHtml(text).split(/\r?\n/);
+        const html = [];
+        let listType = "";
+        let inCode = false;
+        let paragraph = [];
+
+        function flushParagraph() {
+          if (paragraph.length) {
+            html.push("<p>" + paragraph.join("<br>") + "</p>");
+            paragraph = [];
+          }
+        }
+        function closeList() {
+          if (listType) { html.push("</" + listType + ">"); listType = ""; }
+        }
+        function inline(line) {
+          return line
+            .replace(/`([^`]+)`/g, "<code>$1</code>")
+            .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+            .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+              '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        }
+
+        lines.forEach(function (rawLine) {
+          const line = rawLine.replace(/\s+$/, "");
+
+          if (/^\s*```/.test(line)) {
+            flushParagraph();
+            closeList();
+            html.push(inCode ? "</pre>" : "<pre>");
+            inCode = !inCode;
+            return;
+          }
+          if (inCode) { html.push(rawLine); return; }
+
+          if (!line.trim()) { flushParagraph(); closeList(); return; }
+
+          const heading = line.match(/^\s*#{1,6}\s+(.*)$/);
+          const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
+          const ordered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+
+          if (heading) {
+            flushParagraph();
+            closeList();
+            html.push("<h4>" + inline(heading[1].trim()) + "</h4>");
+            return;
+          }
+          if (bullet || ordered) {
+            flushParagraph();
+            const want = bullet ? "ul" : "ol";
+            if (listType !== want) { closeList(); html.push("<" + want + ">"); listType = want; }
+            html.push("<li>" + inline((bullet || ordered)[1].trim()) + "</li>");
+            return;
+          }
+
+          closeList();
+          paragraph.push(inline(line));
+        });
+
+        flushParagraph();
+        if (listType) html.push("</" + listType + ">");
+        if (inCode) html.push("</pre>");
+        return html.join("");
+      }
+
+      function buildFigure(url) {
+        const figure = document.createElement("figure");
+        const link = document.createElement("a");
+        link.href = toSrc(url);
+        link.target = "_blank";
+        link.rel = "noopener";
+
+        const img = document.createElement("img");
+        img.src = toSrc(url);
+        img.alt = "知识库图片";
+        img.loading = "lazy";
+        img.title = "点击查看原图";
+        img.addEventListener("error", function () {
+          const tip = document.createElement("div");
+          tip.className = "figure-error";
+          tip.textContent = "图片加载失败（存储桶未开放匿名读取或地址不可达）：" + url;
+          figure.replaceChild(tip, link);
+        });
+        link.appendChild(img);
+
+        const caption = document.createElement("figcaption");
+        caption.textContent = url;
+
+        figure.appendChild(link);
+        figure.appendChild(caption);
+        return figure;
+      }
+
+      // 重绘当前气泡：文本部分每次都更新，图片只在 URL 集合变化时重建（避免流式期间反复加载）
+      function renderLiveAnswer() {
+        if (!liveEl || !liveTextEl) return;
+
+        const extracted = extractImages(liveRaw);
+        liveEl.classList.add("bubble-rich");
+        liveTextEl.innerHTML = extracted.body.trim() ? markdownLite(extracted.body.trim()) : "";
+
+        const key = extracted.urls.join("\n");
+        if (key !== liveImgKey) {
+          liveImgKey = key;
+          liveFigsEl.textContent = "";
+          extracted.urls.forEach(function (url) {
+            liveFigsEl.appendChild(buildFigure(url));
+          });
+        }
+      }
+
       async function ask() {
         const question = questionEl.value.trim();
         if (!question || busy) return;
@@ -631,6 +862,13 @@
         const live = appendAssistantLive();
         thread.insertBefore(live.wrap, nodesEl);
         liveEl = live.bubble;
+        liveRaw = "";
+        liveImgKey = "";
+        liveTextEl = document.createElement("div");
+        liveFigsEl = document.createElement("div");
+        liveFigsEl.className = "answer-figures";
+        liveEl.appendChild(liveTextEl);
+        liveEl.appendChild(liveFigsEl);
 
         showNodes();
         setNodes("正在创建处理任务…", true);
@@ -638,7 +876,7 @@
 
         let resp;
         try {
-          resp = await fetch("/query/ask", {
+          resp = await fetch(API_BASE + "/query/ask", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ session_id: sessionId, question: question, is_stream: true })
@@ -667,7 +905,7 @@
         }
 
         let finalized = false;
-        const es = new EventSource("/query/stream/" + data.task_id);
+        const es = new EventSource(API_BASE + "/query/stream/" + data.task_id);
 
         es.addEventListener("progress", function (e) {
           try { appendNodes(JSON.parse(e.data)); } catch (_) { /* 忽略畸形帧 */ }
@@ -677,7 +915,10 @@
         es.addEventListener("delta", function (e) {
           try {
             const delta = JSON.parse(e.data).delta || "";
-            if (delta) liveEl.textContent += delta;
+            if (delta) {
+              liveRaw += delta;
+              renderLiveAnswer();
+            }
           } catch (_) { /* 忽略畸形帧 */ }
           scrollToBottom();
         });
@@ -691,7 +932,8 @@
               liveEl.classList.add("bubble-error");
               liveEl.textContent = payload.error;
             } else if (payload.answer) {
-              liveEl.textContent = payload.answer;
+              liveRaw = payload.answer;
+              renderLiveAnswer();
             }
           } catch (_) { /* 忽略畸形帧 */ }
           es.close();
@@ -713,6 +955,10 @@
         busy = false;
         sendEl.disabled = false;
         liveEl = null;
+        liveTextEl = null;
+        liveFigsEl = null;
+        liveRaw = "";
+        liveImgKey = "";
         questionEl.focus();
       }
 
@@ -737,7 +983,7 @@
         });
         liveEl = null;
         try {
-          await fetch("/query/history/clear", {
+          await fetch(API_BASE + "/query/history/clear", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ session_id: sessionId })

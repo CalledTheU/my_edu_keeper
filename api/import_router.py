@@ -1,16 +1,22 @@
 import os
+import sys
 
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, Depends, BackgroundTasks
-from starlette.middleware.cors import CORSMiddleware
+from fastapi import UploadFile, File, Depends, BackgroundTasks
 from starlette.responses import FileResponse, JSONResponse
-from starlette.staticfiles import StaticFiles
 
-from core.deps import get_import_file_service
-from core.paths import get_front_page_dir
-from schema.upload_schema import UploadResponse, TaskStatusResponse
-from services.file_import_service import ImportFileService
-from utils.task_util import get_task_info, add_running_task
+# 兜底把仓库根加入 sys.path：命令行 `python api/import_router.py` 时 sys.path[0]
+# 是 api 目录，core / services / utils 等包会导入失败（PyCharm 默认勾选了
+# Add content roots to PYTHONPATH，所以在 IDE 里运行时不暴露该问题）。
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from core.deps import get_import_file_service  # noqa: E402
+from core.paths import get_front_page_dir  # noqa: E402
+from schema.upload_schema import UploadResponse, TaskStatusResponse  # noqa: E402
+from services.file_import_service import ImportFileService  # noqa: E402
+from utils.task_util import get_task_info, add_running_task  # noqa: E402
 
 
 def register_router(app):
@@ -57,25 +63,15 @@ def register_router(app):
 
 
 def create_app():
-    # 创建 FastAPI 应用
-    app = FastAPI()
-    # 注册路由
-    register_router(app)
-    # 添加跨域设置
-    app.add_middleware(
-        CORSMiddleware,  # 跨域设置
-        allow_origins=["*"],  # 限制请求来源：  * 表示不限制访问来源   Access-Control-Allow-Origin 允许客户端向服务器发送任何请求
-        allow_credentials=False,  # 如果为True,另外三个参数不能为*
-        allow_methods=["*"],  # 请求方法限制   * 表示允许所有请求方法：  get  post  put   delete  ...
-        allow_headers=["*"],  # 限制请求头     * 表示可以携带任何请求头信息
-    )
+    """装配【完整】应用（知识库导入 + 智能问答）。
 
-    # 挂载前端静态资源
-    front_page_dir = get_front_page_dir()
-    if front_page_dir and os.path.exists(front_page_dir):
-        app.mount("/front", StaticFiles(directory=front_page_dir))
-
-    return app
+    注意：本函数历史实现只注册导入路由，如果用 `python api/import_router.py`
+    启动服务，/import 与 /upload 正常，但 /query 页面和 /query/ask 都会 404
+    （问答路由压根没注册，与前端无关）。这里统一委托根目录的 main.create_app()，
+    保证无论从 main.py 还是 api/import_router.py 启动，装配出的应用完全一致。
+    """
+    from main import create_app as build_app  # 延迟导入：避免与 main.py 循环依赖
+    return build_app()
 
 
 if __name__ == '__main__':
