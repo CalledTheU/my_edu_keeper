@@ -2,7 +2,8 @@ import asyncio
 import json
 from typing import Dict, Tuple
 
-from agents.mcp import MCPServerStreamableHttp
+from mcp import ClientSession
+from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
 from processor.query_process.base import BaseNode
 from processor.query_process.exceptions import StateFieldError
@@ -32,7 +33,7 @@ class WebSearchMcpNode(BaseNode):
             web_search_docs = asyncio.run(self._web_mcp(validateed_rewritten_query))
         except Exception as exc:
             # 联网搜索是可选增强；MCP 不可用时继续使用本地知识库。
-            self.logger.warning("MCP 网络搜索不可用，降级为空结果: %s", exc)
+            self.logger.exception("MCP 网络搜索不可用，降级为空结果: %s", exc)
             web_search_docs = []
 
         self.logger.info("网络搜索结果: %d 条", len(web_search_docs))
@@ -57,24 +58,26 @@ class WebSearchMcpNode(BaseNode):
 
     async def _web_mcp(self, validateed_rewritten_query):
 
-        # 1.获取MCP客户端
-        async with MCPServerStreamableHttp(
-                name="网络搜索",
-                params={
-                    "url": self.config.mcp_dashscope_base_url,  # MCP 服务端点
-                    "headers": {"Authorization": f"Bearer {self.config.dashscope_api_key}"},  # 认证头
-                    "timeout": 300,  # 请求超时时间（秒）
-                    "terminate_on_close": True,  # 关闭时终止连接
-                },
-                max_retry_attempts=2,  # 最大重试次数
-                cache_tools_list=True  # 缓存工具列表，避免重复请求
-        ) as client:
+        self.logger.info("MCP配置: url=%s, key_length=%d", self.config.mcp_dashscope_base_url,
+                         len(self.config.dashscope_api_key or ""))
 
-            # 3.调用 call_tool    bailian_web_search
-            execute_tool_result = await client.call_tool(
-                tool_name="bailian_web_search",
-                arguments={"query": validateed_rewritten_query, "count": 3}
-            )
+        headers = {"Authorization": f"Bearer {self.config.dashscope_api_key}"}
+        # 使用官方 MCP SDK 链路：建立 Streamable HTTP、初始化会话、调用工具。
+        async with create_mcp_http_client(headers=headers) as http_client:
+            async with streamable_http_client(
+                    self.config.mcp_dashscope_base_url,
+                    http_client=http_client,
+                    terminate_on_close=True,
+            ) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools_result = await session.list_tools()
+                    tool_names = [tool.name for tool in tools_result.tools]
+                    self.logger.info("MCP 会话初始化成功，可用工具=%s", tool_names)
+                    execute_tool_result = await session.call_tool(
+                        "bailian_web_search",
+                        {"query": validateed_rewritten_query, "count": 3},
+                    )
             print(execute_tool_result)
             # 4.解析结果
             if not execute_tool_result or not execute_tool_result.content or not execute_tool_result.content[0] :

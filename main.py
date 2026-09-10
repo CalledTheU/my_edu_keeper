@@ -29,7 +29,7 @@ def create_app() -> FastAPI:
     """装配 FastAPI 应用(占位骨架阶段即可启动)。"""
     app = FastAPI(
         title="掌柜智库 · 教育版",
-        description="尚硅谷实战项目:掌柜智库教育版(RAG 知识问答),整体框架占位阶段",
+        description="掌柜智库教育版(RAG 知识问答)",
         version="0.1.0",
     )
 
